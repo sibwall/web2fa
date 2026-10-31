@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>2FA Generator</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      background: #111827;
+      color: #fff;
+      margin: 0;
+    }
+    .card {
+      background: #1f2937;
+      padding: 24px;
+      border-radius: 16px;
+      width: min(420px, 92vw);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      text-align: center;
+    }
+    .code {
+      font-size: 44px;
+      letter-spacing: 6px;
+      font-weight: 700;
+      margin: 20px 0 8px;
+    }
+    .info {
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>2FA Code</h2>
+    <div class="code" id="code">------</div>
+    <div class="info" id="timer">Загрузка...</div>
+  </div>
+
+  <script>
+
+    const SECRET = "PASTE_YOUR_SETUP_KEY_HERE";
+
+    function base32ToBytes(base32) {
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+      let bits = "";
+      let bytes = [];
+
+      base32 = base32.replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+
+      for (let i = 0; i < base32.length; i++) {
+        const val = alphabet.indexOf(base32[i]);
+        if (val === -1) continue;
+        bits += val.toString(2).padStart(5, "0");
+      }
+
+      for (let i = 0; i + 8 <= bits.length; i += 8) {
+        bytes.push(parseInt(bits.slice(i, i + 8), 2));
+      }
+
+      return new Uint8Array(bytes);
+    }
+
+    async function generateTOTP(secret) {
+      const key = base32ToBytes(secret);
+      const counter = Math.floor(Date.now() / 1000 / 30);
+
+      const buffer = new ArrayBuffer(8);
+      const view = new DataView(buffer);
+      view.setUint32(4, counter, false);
+
+      const cryptoKey = await crypto.subtle.importKey(
+        "raw",
+        key,
+        { name: "HMAC", hash: "SHA-1" },
+        false,
+        ["sign"]
+      );
+
+      const hash = await crypto.subtle.sign("HMAC", cryptoKey, buffer);
+      const hmac = new Uint8Array(hash);
+
+      const offset = hmac[hmac.length - 1] & 0x0f;
+      const binary =
+        ((hmac[offset] & 0x7f) << 24) |
+        ((hmac[offset + 1] & 0xff) << 16) |
+        ((hmac[offset + 2] & 0xff) << 8) |
+        (hmac[offset + 3] & 0xff);
+
+      return (binary % 1000000).toString().padStart(6, "0");
+    }
+
+    async function update() {
+      if (!SECRET || SECRET === "PASTE_YOUR_SETUP_KEY_HERE") {
+        document.getElementById("code").textContent = "------";
+        document.getElementById("timer").textContent = "Вставь setup key в код";
+        return;
+      }
+
+      document.getElementById("code").textContent = await generateTOTP(SECRET);
+      const remaining = 30 - (Math.floor(Date.now() / 1000) % 30);
+      document.getElementById("timer").textContent = `Обновление через ${remaining}с`;
+    }
+
+    update();
+    setInterval(update, 1000);
+  </script>
+</body>
+</html>
